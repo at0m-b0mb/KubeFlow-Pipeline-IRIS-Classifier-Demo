@@ -1,0 +1,537 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: iris-classifier-kubeflow-pipeline-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.18, pipelines.kubeflow.org/pipeline_compilation_time: '2023-10-16T21:15:29.172327',
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "IRIS classifier by Kailash",
+      "inputs": [{"name": "data_path", "type": "String"}], "name": "IRIS classifier
+      Kubeflow Pipeline"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.18}
+spec:
+  entrypoint: iris-classifier-kubeflow-pipeline
+  templates:
+  - name: get-metrics
+    container:
+      args: []
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas==2.1.1' 'numpy==1.26.1' 'scikit-learn==1.3.1' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.1' 'numpy==1.26.1'
+        'scikit-learn==1.3.1' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def get_metrics():
+            import pandas as pd
+            import numpy as np
+            from sklearn.metrics import accuracy_score,precision_score,recall_score,log_loss
+            from sklearn import metrics
+            print("---- Inside get_metrics component ----")
+            y_test = np.load(f'data/y_test.npy',allow_pickle=True)
+            y_pred = np.load(f'data/y_pred.npy',allow_pickle=True)
+            y_pred_prob = np.load(f'data/y_pred_prob.npy',allow_pickle=True)
+            acc = accuracy_score(y_test, y_pred)
+            prec = precision_score(y_test, y_pred,average='micro')
+            recall = recall_score(y_test, y_pred,average='micro')
+            entropy = log_loss(y_test, y_pred_prob)
+
+            y_test = np.load(f'data/y_test.npy',allow_pickle=True)
+            y_pred = np.load(f'data/y_pred.npy',allow_pickle=True)
+            print(metrics.classification_report(y_test, y_pred))
+
+            print("\n Model Metrics:", {'accuracy': round(acc, 2), 'precision': round(prec, 2), 'recall': round(recall, 2), 'entropy': round(entropy, 2)})
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Get metrics', description='')
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = get_metrics(**_parsed_args)
+      image: python:3.10
+      volumeMounts:
+      - {mountPath: '{{inputs.parameters.data_path}}', name: t-vol}
+    inputs:
+      parameters:
+      - {name: data_path}
+      - {name: t-vol-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.18
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": [], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def get_metrics():\n    import pandas as pd\n    import numpy as np\n    from
+          sklearn.metrics import accuracy_score,precision_score,recall_score,log_loss\n    from
+          sklearn import metrics\n    print(\"---- Inside get_metrics component ----\")\n    y_test
+          = np.load(f''data/y_test.npy'',allow_pickle=True)\n    y_pred = np.load(f''data/y_pred.npy'',allow_pickle=True)\n    y_pred_prob
+          = np.load(f''data/y_pred_prob.npy'',allow_pickle=True)\n    acc = accuracy_score(y_test,
+          y_pred)\n    prec = precision_score(y_test, y_pred,average=''micro'')\n    recall
+          = recall_score(y_test, y_pred,average=''micro'')\n    entropy = log_loss(y_test,
+          y_pred_prob)\n\n    y_test = np.load(f''data/y_test.npy'',allow_pickle=True)\n    y_pred
+          = np.load(f''data/y_pred.npy'',allow_pickle=True)\n    print(metrics.classification_report(y_test,
+          y_pred))\n\n    print(\"\\n Model Metrics:\", {''accuracy'': round(acc,
+          2), ''precision'': round(prec, 2), ''recall'': round(recall, 2), ''entropy'':
+          round(entropy, 2)})\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Get
+          metrics'', description='''')\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = get_metrics(**_parsed_args)\n"], "image": "python:3.10"}}, "name": "Get
+          metrics"}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/max_cache_staleness: P0D}
+    volumes:
+    - name: t-vol
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.t-vol-name}}'}
+  - name: iris-classifier-kubeflow-pipeline
+    inputs:
+      parameters:
+      - {name: data_path}
+    dag:
+      tasks:
+      - name: get-metrics
+        template: get-metrics
+        dependencies: [predict-prob-on-test-data, t-vol]
+        arguments:
+          parameters:
+          - {name: data_path, value: '{{inputs.parameters.data_path}}'}
+          - {name: t-vol-name, value: '{{tasks.t-vol.outputs.parameters.t-vol-name}}'}
+      - name: predict-on-test-data
+        template: predict-on-test-data
+        dependencies: [t-vol, training-basic-classifier]
+        arguments:
+          parameters:
+          - {name: data_path, value: '{{inputs.parameters.data_path}}'}
+          - {name: t-vol-name, value: '{{tasks.t-vol.outputs.parameters.t-vol-name}}'}
+      - name: predict-prob-on-test-data
+        template: predict-prob-on-test-data
+        dependencies: [predict-on-test-data, t-vol]
+        arguments:
+          parameters:
+          - {name: data_path, value: '{{inputs.parameters.data_path}}'}
+          - {name: t-vol-name, value: '{{tasks.t-vol.outputs.parameters.t-vol-name}}'}
+      - name: prepare-data
+        template: prepare-data
+        dependencies: [t-vol]
+        arguments:
+          parameters:
+          - {name: data_path, value: '{{inputs.parameters.data_path}}'}
+          - {name: t-vol-name, value: '{{tasks.t-vol.outputs.parameters.t-vol-name}}'}
+      - {name: t-vol, template: t-vol}
+      - name: train-test-split
+        template: train-test-split
+        dependencies: [prepare-data, t-vol]
+        arguments:
+          parameters:
+          - {name: data_path, value: '{{inputs.parameters.data_path}}'}
+          - {name: t-vol-name, value: '{{tasks.t-vol.outputs.parameters.t-vol-name}}'}
+      - name: training-basic-classifier
+        template: training-basic-classifier
+        dependencies: [t-vol, train-test-split]
+        arguments:
+          parameters:
+          - {name: data_path, value: '{{inputs.parameters.data_path}}'}
+          - {name: t-vol-name, value: '{{tasks.t-vol.outputs.parameters.t-vol-name}}'}
+  - name: predict-on-test-data
+    container:
+      args: []
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas==2.1.1' 'numpy==1.26.1' 'scikit-learn==1.3.1' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.1' 'numpy==1.26.1'
+        'scikit-learn==1.3.1' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def predict_on_test_data():
+            import pandas as pd
+            import numpy as np
+            import pickle
+            print("---- Inside predict_on_test_data component ----")
+            with open(f'data/model.pkl','rb') as f:
+                logistic_reg_model = pickle.load(f)
+            X_test = np.load(f'data/X_test.npy',allow_pickle=True)
+            y_pred = logistic_reg_model.predict(X_test)
+            np.save(f'data/y_pred.npy', y_pred)
+
+            print("\n---- Predicted classes ----")
+            print("\n")
+            print(y_pred)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Predict on test data', description='')
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = predict_on_test_data(**_parsed_args)
+      image: python:3.10
+      volumeMounts:
+      - {mountPath: '{{inputs.parameters.data_path}}', name: t-vol}
+    inputs:
+      parameters:
+      - {name: data_path}
+      - {name: t-vol-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.18
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": [], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def predict_on_test_data():\n    import pandas as pd\n    import numpy
+          as np\n    import pickle\n    print(\"---- Inside predict_on_test_data component
+          ----\")\n    with open(f''data/model.pkl'',''rb'') as f:\n        logistic_reg_model
+          = pickle.load(f)\n    X_test = np.load(f''data/X_test.npy'',allow_pickle=True)\n    y_pred
+          = logistic_reg_model.predict(X_test)\n    np.save(f''data/y_pred.npy'',
+          y_pred)\n\n    print(\"\\n---- Predicted classes ----\")\n    print(\"\\n\")\n    print(y_pred)\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Predict on test data'',
+          description='''')\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = predict_on_test_data(**_parsed_args)\n"], "image": "python:3.10"}}, "name":
+          "Predict on test data"}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/max_cache_staleness: P0D}
+    volumes:
+    - name: t-vol
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.t-vol-name}}'}
+  - name: predict-prob-on-test-data
+    container:
+      args: []
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas==2.1.1' 'numpy==1.26.1' 'scikit-learn==1.3.1' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.1' 'numpy==1.26.1'
+        'scikit-learn==1.3.1' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def predict_prob_on_test_data():
+            import pandas as pd
+            import numpy as np
+            import pickle
+            print("---- Inside predict_prob_on_test_data component ----")
+            with open(f'data/model.pkl','rb') as f:
+                logistic_reg_model = pickle.load(f)
+            X_test = np.load(f'data/X_test.npy',allow_pickle=True)
+            y_pred_prob = logistic_reg_model.predict_proba(X_test)
+            np.save(f'data/y_pred_prob.npy', y_pred_prob)
+
+            print("\n---- Predicted Probabilities ----")
+            print("\n")
+            print(y_pred_prob)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Predict prob on test data', description='')
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = predict_prob_on_test_data(**_parsed_args)
+      image: python:3.10
+      volumeMounts:
+      - {mountPath: '{{inputs.parameters.data_path}}', name: t-vol}
+    inputs:
+      parameters:
+      - {name: data_path}
+      - {name: t-vol-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.18
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": [], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def predict_prob_on_test_data():\n    import pandas as pd\n    import numpy
+          as np\n    import pickle\n    print(\"---- Inside predict_prob_on_test_data
+          component ----\")\n    with open(f''data/model.pkl'',''rb'') as f:\n        logistic_reg_model
+          = pickle.load(f)\n    X_test = np.load(f''data/X_test.npy'',allow_pickle=True)\n    y_pred_prob
+          = logistic_reg_model.predict_proba(X_test)\n    np.save(f''data/y_pred_prob.npy'',
+          y_pred_prob)\n\n    print(\"\\n---- Predicted Probabilities ----\")\n    print(\"\\n\")\n    print(y_pred_prob)\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Predict prob on test
+          data'', description='''')\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = predict_prob_on_test_data(**_parsed_args)\n"], "image": "python:3.10"}},
+          "name": "Predict prob on test data"}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/max_cache_staleness: P0D}
+    volumes:
+    - name: t-vol
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.t-vol-name}}'}
+  - name: prepare-data
+    container:
+      args: []
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas==2.1.1' 'numpy==1.26.1' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+        -m pip install --quiet --no-warn-script-location 'pandas==2.1.1' 'numpy==1.26.1'
+        --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def prepare_data():
+            import pandas as pd
+            print("---- Inside prepare_data component ----")
+            # Load dataset
+            df = pd.read_csv("https://raw.githubusercontent.com/at0m-b0mb/KubeFlow-Pipeline-IRIS-Classifier-Demo/main/iris.csv")
+            df = df.dropna()
+            df.to_csv(f'data/final_df.csv', index=False)
+            print("\n ---- data csv is saved to PV location /data/final_df.csv ----")
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Prepare data', description='')
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = prepare_data(**_parsed_args)
+      image: python:3.10
+      volumeMounts:
+      - {mountPath: '{{inputs.parameters.data_path}}', name: t-vol}
+    inputs:
+      parameters:
+      - {name: data_path}
+      - {name: t-vol-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.18
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": [], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+          ''pandas==2.1.1'' ''numpy==1.26.1'' --user) && \"$0\" \"$@\"", "sh", "-ec",
+          "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def prepare_data():\n    import pandas
+          as pd\n    print(\"---- Inside prepare_data component ----\")\n    # Load
+          dataset\n    df = pd.read_csv(\"https://raw.githubusercontent.com/at0m-b0mb/KubeFlow-Pipeline-IRIS-Classifier-Demo/main/iris.csv")\n    df
+          = df.dropna()\n    df.to_csv(f''data/final_df.csv'', index=False)\n    print(\"\\n
+          ---- data csv is saved to PV location /data/final_df.csv ----\")\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Prepare data'', description='''')\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = prepare_data(**_parsed_args)\n"],
+          "image": "python:3.10"}}, "name": "Prepare data"}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/max_cache_staleness: P0D}
+    volumes:
+    - name: t-vol
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.t-vol-name}}'}
+  - name: t-vol
+    resource:
+      action: create
+      manifest: |
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: '{{workflow.name}}-t-vol'
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    outputs:
+      parameters:
+      - name: t-vol-manifest
+        valueFrom: {jsonPath: '{}'}
+      - name: t-vol-name
+        valueFrom: {jsonPath: '{.metadata.name}'}
+      - name: t-vol-size
+        valueFrom: {jsonPath: '{.status.capacity.storage}'}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.18
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+  - name: train-test-split
+    container:
+      args: []
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas==2.1.1' 'numpy==1.26.1' 'scikit-learn==1.3.1' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.1' 'numpy==1.26.1'
+        'scikit-learn==1.3.1' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def train_test_split():
+            import pandas as pd
+            import numpy as np
+            from sklearn.model_selection import train_test_split
+            print("---- Inside train_test_split component ----")
+            final_data = pd.read_csv(f'data/final_df.csv')
+            target_column = 'class'
+            X = final_data.loc[:, final_data.columns != target_column]
+            y = final_data.loc[:, final_data.columns == target_column]
+
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3,stratify = y, random_state=47)
+
+            np.save(f'data/X_train.npy', X_train)
+            np.save(f'data/X_test.npy', X_test)
+            np.save(f'data/y_train.npy', y_train)
+            np.save(f'data/y_test.npy', y_test)
+
+            print("\n---- X_train ----")
+            print("\n")
+            print(X_train)
+
+            print("\n---- X_test ----")
+            print("\n")
+            print(X_test)
+
+            print("\n---- y_train ----")
+            print("\n")
+            print(y_train)
+
+            print("\n---- y_test ----")
+            print("\n")
+            print(y_test)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Train test split', description='')
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = train_test_split(**_parsed_args)
+      image: python:3.10
+      volumeMounts:
+      - {mountPath: '{{inputs.parameters.data_path}}', name: t-vol}
+    inputs:
+      parameters:
+      - {name: data_path}
+      - {name: t-vol-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.18
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": [], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def train_test_split():\n    import pandas as pd\n    import numpy as np\n    from
+          sklearn.model_selection import train_test_split\n    print(\"---- Inside
+          train_test_split component ----\")\n    final_data = pd.read_csv(f''data/final_df.csv'')\n    target_column
+          = ''class''\n    X = final_data.loc[:, final_data.columns != target_column]\n    y
+          = final_data.loc[:, final_data.columns == target_column]\n\n    X_train,
+          X_test, y_train, y_test = train_test_split(X, y, test_size=0.3,stratify
+          = y, random_state=47)\n\n    np.save(f''data/X_train.npy'', X_train)\n    np.save(f''data/X_test.npy'',
+          X_test)\n    np.save(f''data/y_train.npy'', y_train)\n    np.save(f''data/y_test.npy'',
+          y_test)\n\n    print(\"\\n---- X_train ----\")\n    print(\"\\n\")\n    print(X_train)\n\n    print(\"\\n----
+          X_test ----\")\n    print(\"\\n\")\n    print(X_test)\n\n    print(\"\\n----
+          y_train ----\")\n    print(\"\\n\")\n    print(y_train)\n\n    print(\"\\n----
+          y_test ----\")\n    print(\"\\n\")\n    print(y_test)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Train test split'', description='''')\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = train_test_split(**_parsed_args)\n"],
+          "image": "python:3.10"}}, "name": "Train test split"}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/max_cache_staleness: P0D}
+    volumes:
+    - name: t-vol
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.t-vol-name}}'}
+  - name: training-basic-classifier
+    container:
+      args: []
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas==2.1.1' 'numpy==1.26.1' 'scikit-learn==1.3.1' || PIP_DISABLE_PIP_VERSION_CHECK=1
+        python3 -m pip install --quiet --no-warn-script-location 'pandas==2.1.1' 'numpy==1.26.1'
+        'scikit-learn==1.3.1' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def training_basic_classifier():
+            import pandas as pd
+            import numpy as np
+            from sklearn.linear_model import LogisticRegression
+
+            print("---- Inside training_basic_classifier component ----")
+
+            X_train = np.load(f'data/X_train.npy',allow_pickle=True)
+            y_train = np.load(f'data/y_train.npy',allow_pickle=True)
+
+            classifier = LogisticRegression(max_iter=500)
+            classifier.fit(X_train,y_train)
+            import pickle
+            with open(f'data/model.pkl', 'wb') as f:
+                pickle.dump(classifier, f)
+
+            print("\n logistic regression classifier is trained on iris data and saved to PV location /data/model.pkl ----")
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Training basic classifier', description='')
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = training_basic_classifier(**_parsed_args)
+      image: python:3.10
+      volumeMounts:
+      - {mountPath: '{{inputs.parameters.data_path}}', name: t-vol}
+    inputs:
+      parameters:
+      - {name: data_path}
+      - {name: t-vol-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.18
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": [], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3
+          -m pip install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas==2.1.1'' ''numpy==1.26.1''
+          ''scikit-learn==1.3.1'' --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def training_basic_classifier():\n    import pandas as pd\n    import numpy
+          as np\n    from sklearn.linear_model import LogisticRegression\n\n    print(\"----
+          Inside training_basic_classifier component ----\")\n\n    X_train = np.load(f''data/X_train.npy'',allow_pickle=True)\n    y_train
+          = np.load(f''data/y_train.npy'',allow_pickle=True)\n\n    classifier = LogisticRegression(max_iter=500)\n    classifier.fit(X_train,y_train)\n    import
+          pickle\n    with open(f''data/model.pkl'', ''wb'') as f:\n        pickle.dump(classifier,
+          f)\n\n    print(\"\\n logistic regression classifier is trained on iris
+          data and saved to PV location /data/model.pkl ----\")\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Training basic classifier'', description='''')\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = training_basic_classifier(**_parsed_args)\n"],
+          "image": "python:3.10"}}, "name": "Training basic classifier"}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/max_cache_staleness: P0D}
+    volumes:
+    - name: t-vol
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.t-vol-name}}'}
+  arguments:
+    parameters:
+    - {name: data_path}
+  serviceAccountName: pipeline-runner
