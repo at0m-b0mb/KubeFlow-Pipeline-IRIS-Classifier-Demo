@@ -6,7 +6,7 @@
 This project is a demonstration of a Kubeflow Pipeline for training and deploying an IRIS classifier model. It covers various components of the pipeline, from data preparation to model training and prediction.
 
 ## Instruction Video
-[Watch the Instruction Video]()
+[Watch the Instruction Video](https://drive.google.com/file/d/1Ju_2At_mQSqJljelwt0OZtXGsf_9dwUk/view?usp=drive_link)
 
 ## Project Links
 - **GitHub Repository:** [KubeFlow-Pipeline-IRIS-Classifier-Demo](https://github.com/at0m-b0mb/)
